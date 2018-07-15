@@ -1,13 +1,15 @@
 # Adapted from
 # https://medium.com/ml2vec/intro-to-pytorch-with-image-classification-on-a-fashion-clothes-dataset-e589682df0c5
 import argparse
-
+import random
 import matplotlib.pyplot as plt
 import torch
+import numpy as np
 import torch.nn as nn
 from torch.autograd import Variable
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
+from torch import IntTensor
 
 use_cuda = torch.cuda.is_available()
 kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
@@ -35,11 +37,15 @@ def plot_kernels(tensor, num_cols=6):
         ax1.set_yticklabels([])
     plt.show()
 
-def plot_losses(losses):
+def plot_losses(losses, results):
     fig = plt.figure()
     plt.xlabel('Batches #')
     plt.ylabel('Loss')
-    plt.plot(losses)
+    plt.plot(losses, label="Total loss")
+    for i in range(len(results)):
+        print(results[i])
+        plt.plot(results[i], label=labels_map[i])
+
     #Add plot of losses per category
     plt.show()
 
@@ -72,13 +78,13 @@ class CNN(nn.Module):
         out = self.fc(out)
         return out
 
-
-train_loader = torch.utils.data.DataLoader(
-    datasets.FashionMNIST('data', train=True, download=True,
+training_set = datasets.FashionMNIST('data', train=True, download=True,
                           transform=transforms.Compose([
                               transforms.ToTensor(),
                               transforms.Normalize((0.1307,), (0.3081,))
-                          ])), batch_size=args.batch_size, shuffle=True, **kwargs)
+                          ]))
+train_loader = torch.utils.data.DataLoader(
+    training_set, batch_size=args.batch_size, shuffle=True, **kwargs)
 
 test_loader = torch.utils.data.DataLoader(
     datasets.FashionMNIST('data', train=False, download=True,
@@ -90,20 +96,18 @@ test_loader = torch.utils.data.DataLoader(
 #Show some sample images
 fig = plt.figure()
 
-for i in range(len(t)):
-    sample = face_dataset[i]
+N = len(training_set)
+#Show some sample images
+fig = plt.figure()
 
-    print(i, sample['image'].shape, sample['landmarks'].shape)
-
-    ax = plt.subplot(1, 4, i + 1)
-    plt.tight_layout()
-    ax.set_title('Sample #{}'.format(i))
-    ax.axis('off')
-    show_landmarks(**sample)
-
-    if i == 3:
-        plt.show()
-        break
+for i in range(0,16):
+        num = random.randint(0, N)
+        sample = training_set[num]
+        ax = plt.subplot(4, 4, i + 1)
+        ax.set_title('Sample #{}'.format(labels_map[int(sample[1])]))
+        ax.axis('off')
+        plt.imshow(sample[0].view(sample[0].size(1), sample[0].size(2)))
+plt.show()
 
 cnn = CNN()
 criterion = nn.CrossEntropyLoss()
@@ -134,25 +138,31 @@ for epoch in range(args.num_epochs):
                 N=N,
                 loss=loss.data.item())
             )
+            break
 
 cnn.eval()
 correct = 0
 total = 0
+results = np.zeros(len(labels_map))
 
 for images, labels in test_loader:
     images = Variable(images.float())
     outputs = cnn(images)
     _, predicted = torch.max(outputs.data, 1)
     total += labels.size(0)
-    print(labels.shape)
-    print(labels)
     correct += (predicted == labels).sum()
-print('Test Accuracy: {0:.4f}'.format(100 * correct / total))
+    for i in labels_map:
+        results[i] += (predicted == i).sum()
+results = list(map(lambda x: x/total, results))
+
+for i in labels_map:
+    print('{item} Test Accuracy: {score:.4f}'.format(item=labels_map[i], score=100 * results[i]))
+print('Overall Test Accuracy: {0:.4f}'.format(100 * correct / total))
 
 filters = cnn.modules()
 model_layers = [i for i in cnn.children()]
 
-plot_losses(losses)
+plot_losses(losses, results)
 
 first_layer = model_layers[0]
 first_kernels = first_layer[0].weight.data.numpy()
